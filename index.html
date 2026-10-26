@@ -2,7 +2,6 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Gig Ticket Scanner</title>
   <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <style>
@@ -13,11 +12,10 @@
       text-align: center;
       margin: 0;
       padding: 15px;
-      box-sizing: border-box;
     }
     h2 { margin-top: 5px; margin-bottom: 15px; font-size: 20px; }
     .panel { max-width: 360px; margin: 0 auto; }
-    input[type="password"] {
+    input {
       width: 100%;
       box-sizing: border-box;
       padding: 14px;
@@ -26,7 +24,6 @@
       border-radius: 8px;
       background: #ffffff;
       color: #000000;
-      margin-bottom: 10px;
     }
     #scanner-screen { display: none; }
     #reader {
@@ -37,13 +34,8 @@
       overflow: hidden;
       background: #000;
     }
-    #camera-error {
-      display: none;
-      margin: 15px auto;
-      max-width: 360px;
-      color: #ffab91;
-    }
-    #pin-error { min-height: 20px; margin-top: 8px; color: #ff8a80; font-size: 14px; }
+    #camera-error { display: none; margin: 15px auto; max-width: 360px; color: #ffab91; }
+    #pin-error { min-height: 20px; margin-top: 12px; color: #ff8a80; }
     #result-box {
       margin: 20px auto;
       padding: 20px;
@@ -51,15 +43,15 @@
       max-width: 360px;
       display: none;
     }
-    .checking  { background: #333;    border: 3px solid #777; }
-    .valid     { background: #1b5e20; border: 3px solid #4caf50; }
+    .checking { background: #333; border: 3px solid #777; }
+    .valid { background: #1b5e20; border: 3px solid #4caf50; }
     .duplicate { background: #b71c1c; border: 3px solid #ff5252; }
-    .invalid   { background: #e65100; border: 3px solid #ff9800; }
-    .status-title  { font-size: 24px; font-weight: bold; margin-bottom: 8px; }
+    .invalid { background: #e65100; border: 3px solid #ff9800; }
+    .status-title { font-size: 24px; font-weight: bold; margin-bottom: 8px; }
     .attendee-name { font-size: 20px; margin-bottom: 5px; }
-    .meta-info     { font-size: 14px; opacity: 0.9; }
+    .meta-info { font-size: 14px; opacity: 0.9; }
     button {
-      margin-top: 10px;
+      margin-top: 15px;
       padding: 14px 28px;
       font-size: 16px;
       font-weight: bold;
@@ -69,7 +61,6 @@
       color: #000000;
       cursor: pointer;
       width: 100%;
-      box-sizing: border-box;
     }
     button:disabled { opacity: 0.6; }
     button.secondary { background: #ffd54f; }
@@ -81,7 +72,7 @@
 
   <!-- PIN screen -->
   <div id="pin-screen" class="panel">
-    <input id="pin-input" type="password" placeholder="Enter door PIN" autocomplete="off">
+    <input id="pin-input" type="password" placeholder="Door PIN" autocomplete="off">
     <button id="pin-btn" onclick="submitPin()">Unlock scanner</button>
     <div id="pin-error"></div>
   </div>
@@ -105,7 +96,8 @@
   </div>
 
   <script>
-    const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxp15SEwhDNB80pzLIHjB_-nJ4U_G4Pey0L8RDN4cJ0ydmwJkZjdCkoiw6-rh7TqYJM/exec';
+    // --- PASTE YOUR DEPLOYED WEB APP URL HERE ---
+    const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyAHfvJ1Cb3LtmnJLbL-iHVxw4oJIplPjE03yXRBvFZYA8HrKKcwk2jXZXFNC_v9zkW/exec";
 
     let html5QrCode = null;
     let scannerStarted = false;
@@ -113,18 +105,17 @@
     let currentPin = '';
     let lastCode = '';
 
-    const el = id => document.getElementById(id);
+    const el = function (id) { return document.getElementById(id); };
 
-    // ---------- Storage ----------
-    function savePin(p) { try { localStorage.setItem('gigPin', p); } catch(e) {} }
-    function loadPin()  { try { return localStorage.getItem('gigPin') || ''; } catch(e) { return ''; } }
-    function forgetPin(){ try { localStorage.removeItem('gigPin'); } catch(e) {} }
+    // ---------- PIN handling ----------
+    function savePin(p) { try { localStorage.setItem('gigPin', p); } catch (e) {} }
+    function loadPin() { try { return localStorage.getItem('gigPin') || ''; } catch (e) { return ''; } }
+    function forgetPin() { try { localStorage.removeItem('gigPin'); } catch (e) {} }
 
-    // ---------- PIN ----------
     function authMessage(reason) {
       if (reason === 'LOCKED') return 'Too many wrong attempts. Wait 5 minutes.';
-      if (reason === 'NO_PIN') return 'No PIN set yet. Open your Google Sheet → Gig Ticketing → Set Scanner PIN.';
-      return 'Wrong PIN. Try again.';
+      if (reason === 'NO_PIN') return 'No PIN set yet. In the sheet, open Gig Ticketing > Set Scanner PIN.';
+      return 'Wrong PIN.';
     }
 
     function submitPin() {
@@ -134,26 +125,35 @@
     function tryPin(pin) {
       if (!pin) { el('pin-error').innerText = 'Enter the PIN.'; return; }
       el('pin-btn').disabled = true;
-      el('pin-error').innerText = 'Checking...';
+      el('pin-error').innerText = '';
 
-      fetch(APPS_SCRIPT_URL + '?action=checkpin&pin=' + encodeURIComponent(pin))
-        .then(r => r.json())
-        .then(res => {
+      fetch(`${WEB_APP_URL}?action=checkpin&pin=${encodeURIComponent(pin)}`)
+        .then(function(response) {
+          if (!response.ok) throw new Error("Network response was not ok");
+          return response.json();
+        })
+        .then(function(r) {
           el('pin-btn').disabled = false;
-          if (res.ok) {
+          if (r.ok) {
             currentPin = pin;
             savePin(pin);
-            el('pin-error').innerText = '';
             showScanner();
           } else {
             forgetPin();
-            el('pin-error').innerText = authMessage(res.reason);
+            el('pin-error').innerText = authMessage(r.reason);
           }
         })
-        .catch(err => {
+        .catch(function(err) {
           el('pin-btn').disabled = false;
-          el('pin-error').innerText = 'Connection error: ' + err.message;
+          el('pin-error').innerText = 'Connection problem: ' + err.message;
         });
+    }
+
+    function showPinScreen(message) {
+      el('scanner-screen').style.display = 'none';
+      el('pin-screen').style.display = 'block';
+      el('pin-input').value = '';
+      el('pin-error').innerText = message || '';
     }
 
     function showScanner() {
@@ -171,16 +171,16 @@
         { facingMode: 'environment' },
         {
           fps: 10,
-          qrbox: function(w, h) {
+          qrbox: function (w, h) {
             const s = Math.floor(Math.min(w, h) * 0.7);
             return { width: s, height: s };
           }
         },
         onScanSuccess,
-        function() { /* no-QR-in-frame, ignore */ }
-      ).then(function() {
+        function () { /* ignore "no QR in this frame" */ }
+      ).then(function () {
         scannerStarted = true;
-      }).catch(function(err) {
+      }).catch(function (err) {
         el('camera-error-text').innerText =
           'Camera error: ' + err + '. Allow camera access for this page, then tap Retry camera.';
         el('camera-error').style.display = 'block';
@@ -190,14 +190,14 @@
     function onScanSuccess(decodedText) {
       if (isProcessing) return;
       isProcessing = true;
-      try { html5QrCode.pause(); } catch(e) {}
+      try { html5QrCode.pause(); } catch (e) {}
       verify(decodedText);
     }
 
     function resumeScanner() {
       el('result-box').style.display = 'none';
       isProcessing = false;
-      try { html5QrCode.resume(); } catch(e) {}
+      try { html5QrCode.resume(); } catch (e) {}
     }
 
     function retryLast() {
@@ -208,57 +208,57 @@
     function verify(code) {
       lastCode = code;
 
-      const box   = el('result-box');
+      const box = el('result-box');
       const title = el('status-title');
-      const name  = el('attendee-name');
-      const meta  = el('meta-info');
+      const name = el('attendee-name');
+      const meta = el('meta-info');
 
       el('retry-btn').style.display = 'none';
       box.className = 'checking';
       box.style.display = 'block';
       title.innerText = 'Checking database...';
-      name.innerText  = code;
-      meta.innerText  = '';
+      name.innerText = code;
+      meta.innerText = '';
 
-      fetch(APPS_SCRIPT_URL + '?action=verify&code=' + encodeURIComponent(code) + '&pin=' + encodeURIComponent(currentPin))
-        .then(r => r.json())
-        .then(res => {
+      fetch(`${WEB_APP_URL}?action=verify&code=${encodeURIComponent(code)}&pin=${encodeURIComponent(currentPin)}`)
+        .then(function(response) {
+          if (!response.ok) throw new Error("Network response was not ok");
+          return response.json();
+        })
+        .then(function(res) {
           if (res.status === 'VALID') {
-            box.className   = 'valid';
+            box.className = 'valid';
             title.innerText = '✅ VALID - HAND PHYSICAL TICKET';
-            name.innerText  = res.name;
-            meta.innerText  = res.category + ' | Code: ' + res.code;
+            name.innerText = res.name;
+            meta.innerText = res.category + ' | Code: ' + res.code;
           } else if (res.status === 'DUPLICATE') {
-            box.className   = 'duplicate';
+            box.className = 'duplicate';
             title.innerText = '❌ ALREADY SCANNED!';
-            name.innerText  = res.name;
-            meta.innerText  = 'Checked in at ' + res.time + ' | Code: ' + res.code;
+            name.innerText = res.name;
+            meta.innerText = 'Checked in at ' + res.time + ' | Code: ' + res.code;
           } else if (res.status === 'AUTH_ERROR') {
             forgetPin();
             currentPin = '';
-            el('scanner-screen').style.display = 'none';
-            el('pin-screen').style.display = 'block';
-            el('pin-input').value = '';
-            el('pin-error').innerText = authMessage(res.reason);
+            showPinScreen(authMessage(res.reason));
           } else {
-            box.className   = 'invalid';
+            box.className = 'invalid';
             title.innerText = '⚠️ INVALID TICKET';
-            name.innerText  = 'Code not found';
-            meta.innerText  = 'Scanned: ' + res.code;
+            name.innerText = 'Code not found';
+            meta.innerText = 'Scanned: ' + res.code;
           }
         })
-        .catch(err => {
-          box.className   = 'duplicate';
+        .catch(function(err) {
+          box.className = 'duplicate';
           title.innerText = '⚠️ NOT CHECKED IN';
-          name.innerText  = 'Connection error — tap Retry check';
-          meta.innerText  = err.message;
+          name.innerText = 'Check your connection, then tap Retry check';
+          meta.innerText = err.message;
           el('retry-btn').style.display = 'block';
         });
     }
 
     // ---------- Startup ----------
-    window.onload = function() {
-      el('pin-input').addEventListener('keydown', function(e) {
+    window.onload = function () {
+      el('pin-input').addEventListener('keydown', function (e) {
         if (e.key === 'Enter') submitPin();
       });
       const saved = loadPin();
