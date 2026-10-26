@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Gig Ticket Scanner</title>
+  <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #121212;
+      color: #ffffff;
+      text-align: center;
+      margin: 0;
+      padding: 15px;
+    }
+    h2 { margin-top: 5px; margin-bottom: 15px; font-size: 20px; }
+    .panel { max-width: 360px; margin: 0 auto; }
+    input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 14px;
+      font-size: 16px;
+      border: none;
+      border-radius: 8px;
+      background: #ffffff;
+      color: #000000;
+    }
+    #scanner-screen { display: none; }
+    #reader {
+      width: 100%;
+      max-width: 360px;
+      margin: 0 auto;
+      border-radius: 12px;
+      overflow: hidden;
+      background: #000;
+    }
+    #camera-error { display: none; margin: 15px auto; max-width: 360px; color: #ffab91; }
+    #pin-error { min-height: 20px; margin-top: 12px; color: #ff8a80; }
+    #result-box {
+      margin: 20px auto;
+      padding: 20px;
+      border-radius: 12px;
+      max-width: 360px;
+      display: none;
+    }
+    .checking { background: #333; border: 3px solid #777; }
+    .valid { background: #1b5e20; border: 3px solid #4caf50; }
+    .duplicate { background: #b71c1c; border: 3px solid #ff5252; }
+    .invalid { background: #e65100; border: 3px solid #ff9800; }
+    .status-title { font-size: 24px; font-weight: bold; margin-bottom: 8px; }
+    .attendee-name { font-size: 20px; margin-bottom: 5px; }
+    .meta-info { font-size: 14px; opacity: 0.9; }
+    button {
+      margin-top: 15px;
+      padding: 14px 28px;
+      font-size: 16px;
+      font-weight: bold;
+      border: none;
+      border-radius: 8px;
+      background: #ffffff;
+      color: #000000;
+      cursor: pointer;
+      width: 100%;
+    }
+    button:disabled { opacity: 0.6; }
+    button.secondary { background: #ffd54f; }
+  </style>
+</head>
+<body>
+
+  <h2>🎟️ Gig Door Scanner</h2>
+
+  <!-- PIN screen -->
+  <div id="pin-screen" class="panel">
+    <input id="pin-input" type="password" placeholder="Door PIN" autocomplete="off">
+    <button id="pin-btn" onclick="submitPin()">Unlock scanner</button>
+    <div id="pin-error"></div>
+  </div>
+
+  <!-- Scanner screen -->
+  <div id="scanner-screen">
+    <div id="reader"></div>
+
+    <div id="camera-error">
+      <div id="camera-error-text"></div>
+      <button onclick="startScanner()">Retry camera</button>
+    </div>
+
+    <div id="result-box">
+      <div id="status-title" class="status-title"></div>
+      <div id="attendee-name" class="attendee-name"></div>
+      <div id="meta-info" class="meta-info"></div>
+      <button id="retry-btn" class="secondary" style="display:none" onclick="retryLast()">Retry check</button>
+      <button onclick="resumeScanner()">Scan next ticket</button>
+    </div>
+  </div>
+
+  <script>
+    let html5QrCode = null;
+    let scannerStarted = false;
+    let isProcessing = false;
+    let currentPin = '';
+    let lastCode = '';
+
+    const el = function (id) { return document.getElementById(id); };
+
+    // ---------- PIN handling ----------
+    function savePin(p) { try { localStorage.setItem('gigPin', p); } catch (e) {} }
+    function loadPin() { try { return localStorage.getItem('gigPin') || ''; } catch (e) { return ''; } }
+    function forgetPin() { try { localStorage.removeItem('gigPin'); } catch (e) {} }
+
+    function authMessage(reason) {
+      if (reason === 'LOCKED') return 'Too many wrong attempts. Wait 5 minutes.';
+      if (reason === 'NO_PIN') return 'No PIN set yet. In the sheet, open Gig Ticketing > Set Scanner PIN.';
+      return 'Wrong PIN.';
+    }
+
+    function submitPin() {
+      tryPin(el('pin-input').value.trim());
+    }
+
+    function tryPin(pin) {
+      if (!pin) { el('pin-error').innerText = 'Enter the PIN.'; return; }
+      el('pin-btn').disabled = true;
+      el('pin-error').innerText = '';
+
+      google.script.run
+        .withSuccessHandler(function (r) {
+          el('pin-btn').disabled = false;
+          if (r.ok) {
+            currentPin = pin;
+            savePin(pin);
+            showScanner();
+          } else {
+            forgetPin();
+            el('pin-error').innerText = authMessage(r.reason);
+          }
+        })
+        .withFailureHandler(function (err) {
+          el('pin-btn').disabled = false;
+          el('pin-error').innerText = 'Connection problem: ' + err.message;
+        })
+        .checkPin(pin);
+    }
+
+    function showPinScreen(message) {
+      el('scanner-screen').style.display = 'none';
+      el('pin-screen').style.display = 'block';
+      el('pin-input').value = '';
+      el('pin-error').innerText = message || '';
+    }
+
+    function showScanner() {
+      el('pin-screen').style.display = 'none';
+      el('scanner-screen').style.display = 'block';
+      if (scannerStarted) { resumeScanner(); } else { startScanner(); }
+    }
+
+    // ---------- Camera ----------
+    function startScanner() {
+      el('camera-error').style.display = 'none';
+      if (!html5QrCode) html5QrCode = new Html5Qrcode('reader');
+
+      html5QrCode.start(
+        { facingMode: 'environment' },
+        {
+          fps: 10,
+          qrbox: function (w, h) {
+            const s = Math.floor(Math.min(w, h) * 0.7);
+            return { width: s, height: s };
+          }
+        },
+        onScanSuccess,
+        function () { /* ignore "no QR in this frame" */ }
+      ).then(function () {
+        scannerStarted = true;
+      }).catch(function (err) {
+        el('camera-error-text').innerText =
+          'Camera error: ' + err + '. Allow camera access for this page, then tap Retry camera.';
+        el('camera-error').style.display = 'block';
+      });
+    }
+
+    function onScanSuccess(decodedText) {
+      if (isProcessing) return;
+      isProcessing = true;
+      try { html5QrCode.pause(); } catch (e) {}
+      verify(decodedText);
+    }
+
+    function resumeScanner() {
+      el('result-box').style.display = 'none';
+      isProcessing = false;
+      try { html5QrCode.resume(); } catch (e) {}
+    }
+
+    function retryLast() {
+      if (lastCode) verify(lastCode);
+    }
+
+    // ---------- Ticket check ----------
+    function verify(code) {
+      lastCode = code;
+
+      const box = el('result-box');
+      const title = el('status-title');
+      const name = el('attendee-name');
+      const meta = el('meta-info');
+
+      el('retry-btn').style.display = 'none';
+      box.className = 'checking';
+      box.style.display = 'block';
+      title.innerText = 'Checking database...';
+      name.innerText = code;
+      meta.innerText = '';
+
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (res.status === 'VALID') {
+            box.className = 'valid';
+            title.innerText = '✅ VALID - HAND PHYSICAL TICKET';
+            name.innerText = res.name;
+            meta.innerText = res.category + ' | Code: ' + res.code;
+          } else if (res.status === 'DUPLICATE') {
+            box.className = 'duplicate';
+            title.innerText = '❌ ALREADY SCANNED!';
+            name.innerText = res.name;
+            meta.innerText = 'Checked in at ' + res.time + ' | Code: ' + res.code;
+          } else if (res.status === 'AUTH_ERROR') {
+            forgetPin();
+            currentPin = '';
+            showPinScreen(authMessage(res.reason));
+          } else {
+            box.className = 'invalid';
+            title.innerText = '⚠️ INVALID TICKET';
+            name.innerText = 'Code not found';
+            meta.innerText = 'Scanned: ' + res.code;
+          }
+        })
+        .withFailureHandler(function (err) {
+          box.className = 'duplicate';
+          title.innerText = '⚠️ NOT CHECKED IN';
+          name.innerText = 'Check your connection, then tap Retry check';
+          meta.innerText = err.message;
+          el('retry-btn').style.display = 'block';
+        })
+        .verifyTicketOnScan(code, currentPin);
+    }
+
+    // ---------- Startup ----------
+    window.onload = function () {
+      el('pin-input').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') submitPin();
+      });
+      const saved = loadPin();
+      if (saved) tryPin(saved);
+    };
+  </script>
+</body>
+</html>
