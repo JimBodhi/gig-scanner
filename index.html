@@ -1,167 +1,192 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="utf-8">
-  <title>Gig Ticket Scanner</title>
-  <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GIGS: Scanner Console</title>
+  <script src="https://unpkg.com/html5-qrcode"></script>
   <style>
-    body { font-family: Arial, sans-serif; background: #121212; color: #ffffff; text-align: center; margin: 0; padding: 15px; }
-    h2 { margin-top: 5px; margin-bottom: 15px; font-size: 20px; }
-    .panel { max-width: 360px; margin: 0 auto; }
-    input { width: 100%; box-sizing: border-box; padding: 14px; font-size: 16px; border: none; border-radius: 8px; background: #ffffff; color: #000000; }
-    #scanner-screen { display: none; }
-    #reader { width: 100%; max-width: 360px; margin: 0 auto; border-radius: 12px; overflow: hidden; background: #000; }
-    #camera-error { display: none; margin: 15px auto; color: #ffab91; }
-    #pin-error { min-height: 20px; margin-top: 12px; color: #ff8a80; }
-    #result-box { margin: 20px auto; padding: 20px; border-radius: 12px; max-width: 360px; display: none; }
-    .checking { background: #333; border: 3px solid #777; }
-    .valid { background: #1b5e20; border: 3px solid #4caf50; }
-    .duplicate { background: #b71c1c; border: 3px solid #ff5252; }
-    .invalid { background: #e65100; border: 3px solid #ff9800; }
-    .status-title { font-size: 22px; font-weight: bold; margin-bottom: 10px; }
-    .attendee-name { font-size: 18px; margin-bottom: 5px; }
-    .meta-info { font-size: 14px; opacity: 0.9; margin-bottom: 10px; }
-    .qty-badge { background: #ffeb3b; color: #000; padding: 5px 15px; border-radius: 20px; font-size: 18px; font-weight: bold; display: inline-block; margin-bottom: 10px; }
-    button { margin-top: 15px; padding: 14px 28px; font-size: 16px; font-weight: bold; border: none; border-radius: 8px; background: #ffffff; color: #000000; cursor: pointer; width: 100%; }
-    button.secondary { background: #ffd54f; margin-bottom: 10px; }
+    body { background-color: #0a0a0a; color: white; font-family: 'Helvetica Neue', Arial, sans-serif; margin: 0; padding: 20px; text-align: center; }
+    #reader { width: 100%; max-width: 450px; margin: 0 auto; border-radius: 12px; overflow: hidden; border: 2px solid #333; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+    
+    /* Modal Background */
+    .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.92); z-index: 999; }
+    
+    /* Standard Check-in Modal */
+    .modal-content { background: #1a1a1a; margin: 15% auto; width: 90%; max-width: 380px; padding: 30px; border-radius: 16px; border: 1px solid #333; box-shadow: 0 15px 40px rgba(0,0,0,0.9); }
+    
+    /* Success Modal (Distinct styling for the registration desk) */
+    .modal-success { background: #121812; margin: 15% auto; width: 90%; max-width: 380px; padding: 35px 20px; border-radius: 16px; border: 2px solid #4caf50; box-shadow: 0 15px 50px rgba(76, 175, 80, 0.2); }
+    .big-number { font-size: 64px; color: #4caf50; font-weight: bold; margin: 5px 0; letter-spacing: -2px; }
+    
+    /* Ticket Data Dashboard */
+    .stats { background: #000; padding: 15px; border-radius: 10px; margin: 20px 0; border: 1px solid #222; }
+    .fraction { font-size: 28px; font-weight: bold; color: #4da8da; }
+    
+    /* Plus/Minus Buttons */
+    .stepper { display: flex; align-items: center; justify-content: center; gap: 15px; margin: 20px 0; }
+    .stepper button { width: 55px; height: 55px; font-size: 28px; border: none; border-radius: 12px; background: #2a2a2a; color: white; cursor: pointer; transition: 0.2s; }
+    .stepper button:active { background: #4da8da; color: black; transform: scale(0.95); }
+    .stepper input { width: 50px; text-align: center; font-size: 32px; font-weight: bold; background: transparent; color: white; border: none; outline: none; pointer-events: none; }
+    
+    /* Main Buttons */
+    .btn { padding: 18px; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; width: 100%; font-size: 14px; letter-spacing: 1.5px; margin-top: 10px; transition: 0.2s; }
+    .btn-blue { background: #4da8da; color: #000; }
+    .btn-green { background: #4caf50; color: #fff; }
+    .btn-blue:active, .btn-green:active { transform: scale(0.98); }
+    .btn-dark { background: transparent; color: #666; border: 1px solid #333; }
   </style>
 </head>
 <body>
+  <h2 style="color: #4da8da; letter-spacing: 2px;">SCANNER CONSOLE</h2>
+  <div id="reader"></div>
+  <p id="status" style="margin-top: 20px; font-weight: bold; color: #888;">System Ready. Waiting for scan...</p>
 
-  <h2>🎟️ Gig Door Scanner</h2>
+  <!-- PARTIAL CHECK-IN PREVIEW MODAL -->
+  <div id="checkinModal" class="modal">
+    <div class="modal-content">
+      <h3 style="margin-top:0; color:#4da8da; letter-spacing: 1px;">✅ TICKET FOUND</h3>
+      <p id="m-name" style="font-size:22px; font-weight:bold; margin: 5px 0;">Name</p>
+      
+      <div class="stats">
+        <p style="margin:0; font-size:11px; color:#888; text-transform:uppercase; letter-spacing:1px;">Available on this QR</p>
+        <div class="fraction" id="m-fraction">0 / 0</div>
+      </div>
 
-  <div id="pin-screen" class="panel">
-    <input id="pin-input" type="password" placeholder="Door PIN" autocomplete="off">
-    <button id="pin-btn" onclick="submitPin()">Unlock scanner</button>
-    <div id="pin-error"></div>
+      <p style="color:#aaa; font-size:12px; text-transform: uppercase;">How many are entering now?</p>
+      <div class="stepper">
+        <button onclick="changeAmt(-1)">-</button>
+        <input type="number" id="m-amt" value="1" readonly>
+        <button onclick="changeAmt(1)">+</button>
+      </div>
+
+      <button class="btn btn-blue" onclick="confirmCheckin()">CONFIRM CHECK-IN</button>
+      <button class="btn btn-dark" onclick="closeModal()">CANCEL</button>
+    </div>
   </div>
 
-  <div id="scanner-screen">
-    <div id="reader"></div>
-    <div id="camera-error">
-      <div id="camera-error-text"></div>
-      <button onclick="startScanner()">Retry camera</button>
-    </div>
-
-    <div id="result-box">
-      <div id="status-title" class="status-title"></div>
-      <div id="qty-badge" class="qty-badge" style="display:none;"></div>
-      <div id="attendee-name" class="attendee-name"></div>
-      <div id="meta-info" class="meta-info"></div>
-      <button id="retry-btn" class="secondary" style="display:none" onclick="retryLast()">Retry check</button>
-      <button onclick="resumeScanner()">Scan next ticket</button>
+  <!-- SUCCESS HANDOUT MODAL (For the Registration Desk) -->
+  <div id="successModal" class="modal">
+    <div class="modal-success">
+      <h3 style="margin-top:0; color:#4caf50; letter-spacing: 2px;">✅ APPROVED</h3>
+      <p style="color:#ccc; font-size:13px; text-transform:uppercase; letter-spacing:1px; margin-top:20px;">Please hand out exactly:</p>
+      
+      <div class="big-number" id="s-handout">0</div>
+      <p style="color:#ccc; font-size:13px; text-transform:uppercase; letter-spacing:1px; margin-bottom:25px;">Physical Tickets</p>
+      
+      <div style="background: rgba(255,255,255,0.04); padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+        <p style="margin:0; font-size:11px; color:#888; text-transform:uppercase; letter-spacing:1px;">Updated QR Balance</p>
+        <p style="margin:5px 0 0 0; font-size:18px; font-weight:bold; color:#fff;" id="s-balance">0 / 0 Left</p>
+      </div>
+      
+      <button class="btn btn-green" onclick="closeSuccess()">SCAN NEXT TICKET</button>
     </div>
   </div>
 
   <script>
-    // ==========================================================
-    // ⚠️ CRITICAL: PASTE YOUR GOOGLE SCRIPT WEB APP URL BELOW
-    // ==========================================================
-    const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzuIavxiGj3HFGkedQRBER-rIL2ySAKFHw5kf22ZCulRaeZp-T54pC3_M2tMQDADeth/exec";
-
-    let html5QrCode = null;
-    let scannerStarted = false;
-    let isProcessing = false;
-    let currentPin = '';
-    let lastCode = '';
-    const el = id => document.getElementById(id);
-
-    function tryPin(pin) {
-      if (!pin) { el('pin-error').innerText = 'Enter the PIN.'; return; }
-      el('pin-btn').disabled = true;
-      el('pin-error').innerText = '';
-
-      fetch(`${WEB_APP_URL}?action=checkpin&pin=${encodeURIComponent(pin)}`)
-        .then(r => r.json())
-        .then(r => {
-          el('pin-btn').disabled = false;
-          if (r.ok) {
-            currentPin = pin;
-            el('pin-screen').style.display = 'none';
-            el('scanner-screen').style.display = 'block';
-            startScanner();
-          } else {
-            el('pin-error').innerText = 'Wrong PIN or connection issue.';
-          }
-        }).catch(err => {
-          el('pin-btn').disabled = false;
-          el('pin-error').innerText = 'Connection problem: ' + err.message;
-        });
+    // ==========================================
+    // REPLACE THIS WITH YOUR NEW DEPLOYMENT URL
+    // ==========================================
+    const scriptUrl = "YOUR_WEB_APP_URL"; 
+    
+    let currentPin = localStorage.getItem('scanner_pin');
+    if (!currentPin) {
+      currentPin = prompt("Enter Scanner PIN (Set in Google Sheets):");
+      localStorage.setItem('scanner_pin', currentPin);
     }
 
-    function submitPin() { tryPin(el('pin-input').value.trim()); }
+    let html5QrcodeScanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: 250 });
+    let currentTicket = null;
+    let maxAvailable = 0;
+    let selectedAmt = 1;
 
-    function startScanner() {
-      el('camera-error').style.display = 'none';
-      if (!html5QrCode) html5QrCode = new Html5Qrcode('reader');
-      html5QrCode.start(
-        { facingMode: 'environment' },
-        { fps: 10, qrbox: (w, h) => ({ width: Math.floor(Math.min(w, h) * 0.7), height: Math.floor(Math.min(w, h) * 0.7) }) },
-        (decodedText) => {
-          if (isProcessing) return;
-          isProcessing = true;
-          try { html5QrCode.pause(); } catch(e){}
-          verify(decodedText);
-        },
-        () => {}
-      ).catch(err => {
-        el('camera-error-text').innerText = 'Camera error. Allow camera access and tap Retry.';
-        el('camera-error').style.display = 'block';
-      });
+    function setStatus(msg, color="white") {
+      const st = document.getElementById('status');
+      st.innerText = msg;
+      st.style.color = color;
     }
 
-    function resumeScanner() {
-      el('result-box').style.display = 'none';
-      el('qty-badge').style.display = 'none';
-      isProcessing = false;
-      try { html5QrCode.resume(); } catch(e){}
-    }
-
-    function retryLast() { if (lastCode) verify(lastCode); }
-
-    function verify(code) {
-      lastCode = code;
-      const box = el('result-box');
-      box.className = 'checking';
-      box.style.display = 'block';
-      el('retry-btn').style.display = 'none';
-      el('qty-badge').style.display = 'none';
+    function onScanSuccess(decodedText) {
+      html5QrcodeScanner.pause();
+      setStatus("Looking up ticket...", "#ffeb3b");
       
-      el('status-title').innerText = 'Checking database...';
-      el('attendee-name').innerText = code;
-      el('meta-info').innerText = '';
-
-      fetch(`${WEB_APP_URL}?action=verify&code=${encodeURIComponent(code)}&pin=${encodeURIComponent(currentPin)}`)
+      fetch(scriptUrl + "?action=lookup&code=" + encodeURIComponent(decodedText) + "&pin=" + encodeURIComponent(currentPin))
         .then(r => r.json())
-        .then(res => {
-          if (res.status === 'VALID') {
-            box.className = 'valid';
-            el('status-title').innerText = '✅ VALID TICKET';
-            el('qty-badge').innerText = 'HAND OVER ' + res.jumlah + ' TICKET(S)';
-            el('qty-badge').style.display = 'inline-block';
-            el('attendee-name').innerText = res.name;
-            el('meta-info').innerText = 'Code: ' + res.code;
-          } else if (res.status === 'DUPLICATE') {
-            box.className = 'duplicate';
-            el('status-title').innerText = '❌ ALREADY SCANNED!';
-            el('qty-badge').innerText = res.jumlah + ' TICKETS ALREADY CLAIMED';
-            el('qty-badge').style.display = 'inline-block';
-            el('attendee-name').innerText = res.name;
-            el('meta-info').innerText = 'Checked in at ' + res.time;
+        .then(data => {
+          if (data.status === "VALID") {
+            openModal(data);
+          } else if (data.status === "FULLY_USED") {
+            alert("❌ ALL TICKETS USED!\\nName: " + data.name + "\\nTotal Purchased: " + data.total);
+            html5QrcodeScanner.resume();
+            setStatus("System Ready. Waiting for scan...", "#888");
           } else {
-            box.className = 'invalid';
-            el('status-title').innerText = '⚠️ INVALID TICKET';
-            el('attendee-name').innerText = 'Code not found';
-            el('meta-info').innerText = 'Scanned: ' + res.code;
+            alert("❌ INVALID TICKET CODE!");
+            html5QrcodeScanner.resume();
+            setStatus("System Ready. Waiting for scan...", "#888");
           }
-        }).catch(err => {
-          box.className = 'duplicate';
-          el('status-title').innerText = '⚠️ CONNECTION ERROR';
-          el('attendee-name').innerText = 'Check internet and tap Retry check';
-          el('meta-info').innerText = err.message;
-          el('retry-btn').style.display = 'block';
+        }).catch(e => {
+          alert("Network Error. Check your internet connection.");
+          html5QrcodeScanner.resume();
         });
     }
+
+    function openModal(data) {
+      currentTicket = data;
+      maxAvailable = data.remaining;
+      selectedAmt = maxAvailable; 
+      
+      document.getElementById('m-name').innerText = data.name;
+      // Displays e.g., "5 / 7"
+      document.getElementById('m-fraction').innerText = data.remaining + " / " + data.total;
+      
+      updateAmtDisplay();
+      document.getElementById('checkinModal').style.display = 'block';
+    }
+
+    function closeModal() {
+      document.getElementById('checkinModal').style.display = 'none';
+      html5QrcodeScanner.resume();
+      setStatus("System Ready. Waiting for scan...", "#888");
+    }
+
+    function changeAmt(delta) {
+      selectedAmt += delta;
+      if (selectedAmt < 1) selectedAmt = 1;
+      if (selectedAmt > maxAvailable) selectedAmt = maxAvailable;
+      updateAmtDisplay();
+    }
+
+    function updateAmtDisplay() {
+      document.getElementById('m-amt').value = selectedAmt;
+    }
+
+    function confirmCheckin() {
+      document.getElementById('checkinModal').style.display = 'none';
+      setStatus("Checking in " + selectedAmt + " people...", "#4da8da");
+      
+      fetch(scriptUrl + "?action=checkin&code=" + encodeURIComponent(currentTicket.code) + "&pin=" + encodeURIComponent(currentPin) + "&amount=" + selectedAmt)
+        .then(r => r.json())
+        .then(data => {
+          if (data.status === "SUCCESS") {
+            // Populate the new Success Modal
+            document.getElementById('s-handout').innerText = data.checkedInNow;
+            document.getElementById('s-balance').innerText = data.remaining + " / " + currentTicket.total + " Left";
+            document.getElementById('successModal').style.display = 'block';
+          } else {
+            alert("❌ Error: " + data.status);
+            html5QrcodeScanner.resume();
+            setStatus("System Ready. Waiting for scan...", "#888");
+          }
+        });
+    }
+
+    function closeSuccess() {
+      document.getElementById('successModal').style.display = 'none';
+      html5QrcodeScanner.resume();
+      setStatus("System Ready. Waiting for scan...", "#888");
+    }
+
+    html5QrcodeScanner.render(onScanSuccess);
   </script>
 </body>
 </html>
