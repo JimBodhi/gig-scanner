@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GIGS: Scanner Console</title>
+  <!-- Version is pinned so a future library update can never break the door scanner -->
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  
+  <!-- Import sleek modern font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+  
+  <style>
+    :root {
+      --bg-main: #09090b;
+      --bg-panel: rgba(24, 24, 27, 0.85);
+      --accent-blue: #38bdf8;
+      --accent-blue-dark: #0284c7;
+      --accent-green: #34d399;
+      --accent-green-dark: #059669;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+    }
+
+    body { background-color: var(--bg-main); color: var(--text-main); font-family: 'Outfit', sans-serif; margin: 0; padding: 20px; text-align: center; }
+    
+    h2 { font-weight: 800; text-transform: uppercase; letter-spacing: 3px; margin-bottom: 25px; background: linear-gradient(to right, var(--accent-blue), #818cf8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+
+    /* Customizing the ugly default scanner UI */
+    #reader { width: 100%; max-width: 450px; margin: 0 auto; border: none !important; border-radius: 20px; overflow: hidden; box-shadow: 0 0 0 1px rgba(255,255,255,0.1), 0 20px 50px rgba(0,0,0,0.6); background: #121214; }
+    #reader video { border-radius: 20px; }
+    #reader__dashboard_section_csr span { color: var(--text-main) !important; font-family: 'Outfit', sans-serif !important; }
+    #reader button { background: linear-gradient(135deg, var(--accent-blue), var(--accent-blue-dark)); color: #fff; border: none; padding: 10px 20px; border-radius: 10px; font-weight: 600; cursor: pointer; font-family: 'Outfit', sans-serif; margin: 10px 5px; transition: 0.2s; }
+    #reader select { background: #1f2937; color: #fff; border: 1px solid #334155; padding: 10px; border-radius: 10px; font-family: 'Outfit', sans-serif; margin-bottom: 10px; }
+    
+    #status { margin-top: 25px; font-weight: 600; color: var(--text-muted); font-size: 14px; letter-spacing: 1px; }
+
+    /* Keyboard entry (for guests whose QR doesn't show or won't scan) */
+    .manual { max-width: 450px; margin: 25px auto 10px auto; padding: 20px; box-sizing: border-box; background: var(--bg-panel); border: 1px solid rgba(255,255,255,0.1); border-radius: 20px; }
+    .manual-title { margin: 0 0 12px 0; font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600; }
+    .manual-row { display: flex; gap: 10px; align-items: stretch; }
+    .manual-row input { flex: 1; min-width: 0; font-size: 22px; font-weight: 800; letter-spacing: 3px; text-align: center; text-transform: uppercase; font-family: 'Outfit', sans-serif; color: #fff; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.12); border-radius: 14px; padding: 14px 8px; outline: none; }
+    .manual-row input:focus { border-color: var(--accent-blue); }
+    .manual-row input::placeholder { color: rgba(148,163,184,0.45); letter-spacing: 3px; }
+    .manual-row .btn { width: auto; margin-top: 0; padding: 0 22px; }
+    .manual-hint { margin: 10px 0 0 0; font-size: 12px; color: var(--text-muted); }
+    .manual-hint b { color: var(--text-main); letter-spacing: 2px; }
+    .pfx-row { display: flex; gap: 10px; margin-bottom: 12px; }
+    .pfx { flex: 1; padding: 14px 0; font-size: 16px; font-weight: 800; letter-spacing: 3px; font-family: 'Outfit', sans-serif; color: var(--text-muted); background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 14px; cursor: pointer; transition: all 0.2s; }
+    .pfx.active { color: #fff; border-color: transparent; background: linear-gradient(135deg, var(--accent-blue), var(--accent-blue-dark)); box-shadow: 0 8px 20px rgba(2, 132, 199, 0.3); }
+
+
+    /* PIN + message boxes (in-page, so they work even where browser pop-ups like prompt()/alert() are blocked) */
+    .pin-input { width: 100%; box-sizing: border-box; font-size: 24px; font-weight: 800; letter-spacing: 6px; text-align: center; font-family: 'Outfit', sans-serif; color: #fff; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.12); border-radius: 14px; padding: 14px 8px; outline: none; }
+    .pin-input:focus { border-color: var(--accent-blue); }
+    #msg-text { white-space: pre-line; font-size: 18px; font-weight: 600; line-height: 1.4; margin: 0 0 10px 0; }
+
+    /* Glassmorphism Modals */
+    .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); z-index: 999; }
+    
+    @keyframes slideUp {
+      from { transform: translateY(30px) scale(0.95); opacity: 0; }
+      to { transform: translateY(0) scale(1); opacity: 1; }
+    }
+
+    .modal-content, .modal-success { animation: slideUp 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; margin: 15% auto; width: 85%; max-width: 360px; padding: 35px 25px; border-radius: 24px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.7); }
+    
+    .modal-content { background: var(--bg-panel); border: 1px solid rgba(255,255,255,0.1); }
+    .modal-success { background: rgba(6, 39, 22, 0.85); border: 1px solid rgba(52, 211, 153, 0.3); box-shadow: 0 0 40px rgba(52, 211, 153, 0.15); }
+    
+    /* Typography inside Modals */
+    .tag { display: inline-block; padding: 6px 12px; background: rgba(56, 189, 248, 0.15); color: var(--accent-blue); border-radius: 20px; font-size: 11px; font-weight: 800; letter-spacing: 1.5px; margin-bottom: 15px; }
+    .tag-success { background: rgba(52, 211, 153, 0.15); color: var(--accent-green); }
+    
+    #m-name { font-size: 26px; font-weight: 800; margin: 0 0 20px 0; line-height: 1.2; }
+    .big-number { font-size: 72px; color: var(--accent-green); font-weight: 800; margin: 0; line-height: 1; text-shadow: 0 0 20px rgba(52,211,153,0.3); }
+    
+    /* Stats Dashboard */
+    .stats { background: rgba(0,0,0,0.4); padding: 20px; border-radius: 16px; margin: 0 0 20px 0; border: 1px solid rgba(255,255,255,0.05); }
+    .stats p { margin: 0 0 8px 0; font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600; }
+    .fraction { font-size: 32px; font-weight: 800; color: var(--accent-blue); }
+    
+    /* Stepper UI */
+    .stepper { display: flex; align-items: center; justify-content: center; gap: 20px; margin: 25px 0; background: rgba(0,0,0,0.3); padding: 15px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.03); }
+    .stepper button { width: 45px; height: 45px; font-size: 24px; border: none; border-radius: 14px; background: rgba(255,255,255,0.08); color: white; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; font-family: 'Outfit'; }
+    .stepper button:active { background: var(--accent-blue); color: #000; transform: scale(0.9); }
+    .stepper input { width: 60px; text-align: center; font-size: 36px; font-weight: 800; background: transparent; color: white; border: none; outline: none; pointer-events: none; padding: 0; margin: 0; }
+    
+    /* Premium Buttons */
+    .btn { padding: 18px; border: none; border-radius: 14px; font-weight: 800; cursor: pointer; width: 100%; font-size: 13px; letter-spacing: 2px; margin-top: 12px; transition: all 0.2s; font-family: 'Outfit', sans-serif; text-transform: uppercase; }
+    .btn-blue { background: linear-gradient(135deg, var(--accent-blue), var(--accent-blue-dark)); color: #fff; box-shadow: 0 8px 20px rgba(2, 132, 199, 0.3); }
+    .btn-green { background: linear-gradient(135deg, var(--accent-green), var(--accent-green-dark)); color: #fff; box-shadow: 0 8px 20px rgba(5, 150, 105, 0.3); }
+    .btn-blue:active, .btn-green:active { transform: scale(0.96); box-shadow: none; }
+    .btn-dark { background: transparent; color: var(--text-muted); border: 1px solid rgba(255,255,255,0.1); }
+    .btn-dark:active { background: rgba(255,255,255,0.05); }
+  </style>
+</head>
+<body>
+  <h2>Scanner Console</h2>
+  <div id="reader"></div>
+  <p id="status">System Ready. Waiting for scan...</p>
+
+  <!-- KEYBOARD ENTRY: tap BIN or EXT, then type the last 4 characters (same lookup and check-in as scanning) -->
+  <div class="manual">
+    <p class="manual-title">No QR? Tap BIN or EXT, then type the last 4</p>
+    <div class="pfx-row">
+      <button type="button" id="pfx-BIN" class="pfx active" onclick="setPrefix('BIN')">BIN</button>
+      <button type="button" id="pfx-EXT" class="pfx" onclick="setPrefix('EXT')">EXT</button>
+    </div>
+    <div class="manual-row">
+      <input id="manualCode" type="text" inputmode="text" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" maxlength="4" placeholder="Q4E5">
+      <button class="btn btn-blue" onclick="submitManual()">Look up</button>
+    </div>
+    <p class="manual-hint">Will look up: <b id="manualPreview">BIN-____</b></p>
+  </div>
+
+  <!-- PARTIAL CHECK-IN PREVIEW MODAL -->
+  <div id="checkinModal" class="modal">
+    <div class="modal-content">
+      <div class="tag">✅ TICKET FOUND</div>
+      <p id="m-name">Name</p>
+      
+      <div class="stats">
+        <p>Available on this QR</p>
+        <div class="fraction" id="m-fraction">0 / 0</div>
+      </div>
+
+      <p style="color:var(--text-muted); font-size:11px; text-transform: uppercase; font-weight: 600; letter-spacing: 1px; margin: 20px 0 10px 0;">How many entering now?</p>
+      <div class="stepper">
+        <button onclick="changeAmt(-1)">−</button>
+        <input type="number" id="m-amt" value="1" readonly>
+        <button onclick="changeAmt(1)">+</button>
+      </div>
+
+      <button class="btn btn-blue" onclick="confirmCheckin()">Confirm Check-in</button>
+      <button class="btn btn-dark" onclick="closeModal()">Cancel</button>
+    </div>
+  </div>
+
+  <!-- SUCCESS HANDOUT MODAL -->
+  <div id="successModal" class="modal">
+    <div class="modal-success">
+      <div class="tag tag-success">✅ APPROVED</div>
+      <p style="color:var(--text-muted); font-size:12px; text-transform:uppercase; letter-spacing:1px; margin-top:15px; font-weight: 600;">Please hand out exactly:</p>
+      
+      <div class="big-number" id="s-handout">0</div>
+      <p style="color:#fff; font-size:14px; font-weight:800; text-transform:uppercase; letter-spacing:2px; margin: 5px 0 25px 0;">Physical Tickets</p>
+      
+      <div class="stats" style="margin-bottom: 25px; border-color: rgba(52, 211, 153, 0.2);">
+        <p>Updated QR Balance</p>
+        <div class="fraction" style="color: var(--accent-green);" id="s-balance">0 / 0 Left</div>
+      </div>
+      
+      <button class="btn btn-green" onclick="closeSuccess()">Scan Next Ticket</button>
+    </div>
+  </div>
+
+
+  <!-- MESSAGE BOX (replaces alert) -->
+  <div id="msgModal" class="modal" style="z-index: 1001;">
+    <div class="modal-content">
+      <p id="msg-text">Message</p>
+      <button class="btn btn-blue" onclick="closeMsg()">OK</button>
+    </div>
+  </div>
+
+  <!-- PIN BOX (replaces prompt) -->
+  <div id="pinModal" class="modal" style="z-index: 1002;">
+    <div class="modal-content">
+      <div class="tag">🔒 DOOR STAFF</div>
+      <p style="margin: 0 0 14px 0; color: var(--text-muted); font-size: 12px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">Enter scanner PIN</p>
+      <input id="pinInput" class="pin-input" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="••••">
+      <button class="btn btn-blue" onclick="submitPin()">Unlock</button>
+    </div>
+  </div>
+
+  <script>
+    // ==========================================
+    // REPLACE THIS WITH YOUR NEW DEPLOYMENT URL
+    // ==========================================
+    const scriptUrl = "https://script.google.com/macros/s/AKfycbzuIavxiGj3HFGkedQRBER-rIL2ySAKFHw5kf22ZCulRaeZp-T54pC3_M2tMQDADeth/exec"; 
+    
+    // ---------- STORAGE (some embedded browsers block it, so never let it crash the page) ----------
+    function storeGet(k)    { try { return localStorage.getItem(k); } catch (e) { return null; } }
+    function storeSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+    function storeDel(k)    { try { localStorage.removeItem(k); } catch (e) {} }
+
+    // ---------- MESSAGE BOX (instead of alert) ----------
+    let msgOnClose = null;
+    function notify(text, onClose) {
+      document.getElementById('msg-text').textContent = text;
+      msgOnClose = onClose || null;
+      document.getElementById('msgModal').style.display = 'block';
+    }
+    function closeMsg() {
+      document.getElementById('msgModal').style.display = 'none';
+      const f = msgOnClose; msgOnClose = null;
+      if (f) f();
+    }
+
+    // ---------- PIN (in-page box instead of prompt) ----------
+    let currentPin = storeGet('scanner_pin') || "";
+    function askPin() {
+      document.getElementById('pinInput').value = "";
+      document.getElementById('pinModal').style.display = 'block';
+      setTimeout(function () { try { document.getElementById('pinInput').focus(); } catch (e) {} }, 50);
+    }
+    function submitPin() {
+      const v = document.getElementById('pinInput').value.trim();
+      if (!v) { document.getElementById('pinInput').focus(); return; }
+      currentPin = v;
+      storeSet('scanner_pin', v);
+      document.getElementById('pinModal').style.display = 'none';
+    }
+    document.getElementById('pinInput').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') submitPin();
+    });
+    if (!currentPin) askPin();
+
+    // ---------- CAMERA SCANNER ----------
+    // If the library or the camera fails, the keyboard box below still works.
+    let html5QrcodeScanner = null;
+    try {
+      html5QrcodeScanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: { width: 250, height: 250 } });
+    } catch (e) {
+      document.getElementById('reader').innerHTML = '<p style="padding:20px; color:#f87171; font-weight:600;">Camera scanner could not load.<br>Use the ticket number box below.</p>';
+    }
+    function pauseScanner()  { try { if (html5QrcodeScanner) html5QrcodeScanner.pause(); }  catch (e) {} }
+    function resumeScanner() { try { if (html5QrcodeScanner) html5QrcodeScanner.resume(); } catch (e) {} }
+
+    let currentTicket = null;
+    let maxAvailable = 0;
+    let selectedAmt = 1;
+    let busy = false;   // true while a ticket is being looked up / confirmed
+
+    function setStatus(msg, color="var(--text-muted)") {
+      const st = document.getElementById('status');
+      st.innerText = msg;
+      st.style.color = color;
+    }
+
+    // Back to "ready for the next ticket"
+    function resetReady() {
+      busy = false;
+      resumeScanner();
+      setStatus("System Ready. Waiting for scan...");
+    }
+
+    // ---------- LOOKUP (shared by the camera and the keyboard) ----------
+    function lookupOne(code) {
+      return fetch(scriptUrl + "?action=lookup&code=" + encodeURIComponent(code) + "&pin=" + encodeURIComponent(currentPin))
+        .then(r => r.json());
+    }
+
+    // A scanned QR is the full code. A full code is tidied up ("bin q4e5" -> BIN-Q4E5); anything else is sent as-is.
+    function candidateCodes(raw) {
+      const clean = String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+      if (/^(BIN|EXT)[A-Z0-9]{4}$/.test(clean)) return [clean.slice(0, 3) + "-" + clean.slice(3)];
+      return [String(raw || '').trim()];
+    }
+
+    function processCode(raw) {
+      if (busy) return;
+      if (!currentPin) { askPin(); return; }
+      busy = true;
+      pauseScanner();
+      setStatus("Processing ticket data...", "var(--accent-blue)");
+
+      const candidates = candidateCodes(raw);
+      const tryNext = function (i) {
+        return lookupOne(candidates[i]).then(function (data) {
+          if (data.status === "INVALID" && i + 1 < candidates.length) return tryNext(i + 1);
+          return data;
+        });
+      };
+
+      tryNext(0).then(function (data) {
+        if (data.status === "VALID") {
+          openModal(data);
+        } else if (data.status === "FULLY_USED") {
+          notify("❌ ALL TICKETS USED!\nName: " + data.name + "\nTotal Purchased: " + data.total, resetReady);
+        } else if (data.status === "AUTH_ERROR") {
+          notify("❌ Wrong or missing PIN.\nPlease enter it again.", function () {
+            storeDel('scanner_pin');
+            currentPin = "";
+            resetReady();
+            askPin();
+          });
+        } else {
+          notify("❌ INVALID TICKET CODE!" + (candidates[0].length <= 12 ? "\nChecked: " + candidates[0] : ""), resetReady);
+        }
+      }).catch(function () {
+        notify("Network Error.\nCheck your internet connection.", resetReady);
+      });
+    }
+
+    function onScanSuccess(decodedText) {
+      processCode(decodedText);
+    }
+
+    // ---------- KEYBOARD ENTRY: BIN / EXT buttons + last 4 characters ----------
+    let manualPrefix = (storeGet('scanner_prefix') === 'EXT') ? 'EXT' : 'BIN';
+
+    function manualSuffix() {
+      return document.getElementById('manualCode').value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4);
+    }
+    function updateManualPreview() {
+      document.getElementById('manualPreview').textContent = manualPrefix + "-" + (manualSuffix() + "____").slice(0, 4);
+    }
+    function setPrefix(p) {
+      manualPrefix = p;
+      storeSet('scanner_prefix', p);
+      document.getElementById('pfx-BIN').classList.toggle('active', p === 'BIN');
+      document.getElementById('pfx-EXT').classList.toggle('active', p === 'EXT');
+      updateManualPreview();
+    }
+    function submitManual() {
+      const input = document.getElementById('manualCode');
+      const suffix = manualSuffix();
+      if (suffix.length < 4) {
+        notify("Type all 4 characters after " + manualPrefix + "-\n(example: Q4E5)", function () { input.focus(); });
+        return;
+      }
+      processCode(manualPrefix + "-" + suffix);
+    }
+    document.getElementById('manualCode').addEventListener('input', function () {
+      this.value = manualSuffix();
+      updateManualPreview();
+    });
+    document.getElementById('manualCode').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') submitManual();
+    });
+    setPrefix(manualPrefix);
+
+    // ---------- CHECK-IN MODAL ----------
+    function openModal(data) {
+      currentTicket = data;
+      maxAvailable = data.remaining;
+      selectedAmt = maxAvailable; 
+      
+      document.getElementById('m-name').innerText = data.name;
+      document.getElementById('m-fraction').innerText = data.remaining + " / " + data.total;
+      
+      updateAmtDisplay();
+      document.getElementById('checkinModal').style.display = 'block';
+    }
+
+    function closeModal() {
+      document.getElementById('checkinModal').style.display = 'none';
+      resetReady();
+    }
+
+    function changeAmt(delta) {
+      selectedAmt += delta;
+      if (selectedAmt < 1) selectedAmt = 1;
+      if (selectedAmt > maxAvailable) selectedAmt = maxAvailable;
+      updateAmtDisplay();
+    }
+
+    function updateAmtDisplay() {
+      document.getElementById('m-amt').value = selectedAmt;
+    }
+
+    function confirmCheckin() {
+      document.getElementById('checkinModal').style.display = 'none';
+      setStatus("Securely logging check-in...", "var(--accent-green)");
+      
+      fetch(scriptUrl + "?action=checkin&code=" + encodeURIComponent(currentTicket.code) + "&pin=" + encodeURIComponent(currentPin) + "&amount=" + selectedAmt)
+        .then(r => r.json())
+        .then(data => {
+          if (data.status === "SUCCESS") {
+            document.getElementById('s-handout').innerText = data.checkedInNow;
+            document.getElementById('s-balance').innerText = data.remaining + " / " + currentTicket.total + " Left";
+            document.getElementById('successModal').style.display = 'block';
+          } else {
+            notify("❌ Error: " + data.status, resetReady);
+          }
+        }).catch(e => {
+          notify("Network Error.\nPlease try again.", resetReady);
+        });
+    }
+
+    function closeSuccess() {
+      document.getElementById('successModal').style.display = 'none';
+      document.getElementById('manualCode').value = "";
+      updateManualPreview();
+      resetReady();
+    }
+
+    if (html5QrcodeScanner) {
+      try { html5QrcodeScanner.render(onScanSuccess); } catch (e) {}
+    }
+  </script>
+</body>
+</html>
